@@ -50,21 +50,28 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
   }
 </style>
 
-<form method="get" class="mb-3 d-flex gap-3 align-items-end">
-    <div>
-        <label class="form-label">From</label>
-        <input type="date" name="from" value="<?= htmlspecialchars($from ?? '') ?>" class="form-control">
-    </div>
-    <div>
-        <label class="form-label">To</label>
-        <input type="date" name="to" value="<?= htmlspecialchars($to ?? '') ?>" class="form-control">
-    </div>
-    <div>
-        <label class="form-label d-block">&nbsp;</label>
-        <button class="btn btn-primary">Filter</button>
-    </div>
-</form>
+<form method="get" class="row g-2 g-md-3 align-items-end mb-3">
+  <div class="col-12 col-md-4 col-lg-3">
+      <label class="form-label">From</label>
+      <input type="date"
+             name="from"
+             value="<?= htmlspecialchars($from ?? '') ?>"
+             class="form-control">
+  </div>
 
+  <div class="col-12 col-md-4 col-lg-3">
+      <label class="form-label">To</label>
+      <input type="date"
+             name="to"
+             value="<?= htmlspecialchars($to ?? '') ?>"
+             class="form-control">
+  </div>
+
+  <div class="col-12 col-md-4 col-lg-2">
+      <label class="form-label d-block">&nbsp;</label>
+      <button class="btn btn-primary w-100">Filter</button>
+  </div>
+</form>
 
 <div class="table-responsive">
   <table class="table table-striped table-hover table-bordered align-middle w-100 shadow-sm">
