@@ -9,76 +9,95 @@ use PHPUnit\Framework\TestCase;
 
 final class ProductsControllerTest extends TestCase
 {
-  private \PDO $pdo;
+    private \PDO $pdo;
+    private int $productId; // store inserted product id
 
-  protected function setUp(): void {
-    $this->pdo = \App\Database\Db::get();
-    $this->pdo->beginTransaction();
+    protected function setUp(): void
+    {
+        $this->pdo = \App\Database\Db::get();
+        $this->pdo->beginTransaction();
 
-    // minimal seed for the test
-    $this->pdo->exec("DELETE FROM transactions");
-    $this->pdo->exec("DELETE FROM products");
-    $stmt = $this->pdo->prepare("INSERT INTO products (name,price,quantity_available) VALUES (?,?,?)");
-    $stmt->execute(['Coke', 2.99, 2]);
-  }
+        // minimal seed for the test
+        $this->pdo->exec("DELETE FROM transactions");
+        $this->pdo->exec("DELETE FROM products");
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO products (name,price,quantity_available) VALUES (?,?,?)"
+        );
+        $stmt->execute(['Coke', 2.99, 2]);
 
-  protected function tearDown(): void {
-    if ($this->pdo->inTransaction()) {
-      $this->pdo->rollBack(); // DB returns to pre-test state
+        // get the actual id of the inserted product
+        $this->productId = (int)$this->pdo->lastInsertId();
+
+        // reset redirect memory
+        \ProductsController::$lastRedirect = null;
+
+        // ensure clean session
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        $_SESSION = [];
     }
-    header_remove(); // clear headers between tests
-    $_SESSION = [];
-  }
 
-  private function assertRedirect(string $expected) {
-    $loc = null;
-    foreach (headers_list() as $h) {
-      if (stripos($h, 'Location:') === 0) {
-        $loc = trim(substr($h, 9));
-      }
+    protected function tearDown(): void
+    {
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->rollBack(); // DB returns to pre-test state
+        }
+        header_remove(); // clear headers between tests
+        $_SESSION = [];
     }
-    $this->assertSame($expected, $loc, 'Expected redirect to '.$expected);
-  }
 
-  public function testPurchaseFormRedirectsWhenGuest(): void {
-    $ctrl = new \ProductsController(); // global class (no namespace)
-    ob_start();
-    try { $ctrl->purchaseForm(['id'=>1]); } catch (\Throwable $e) {}
-    ob_end_clean();
-    $this->assertRedirect('/login');
+    private function assertRedirect(string $expected): void
+    {
+        $this->assertSame(
+            $expected,
+            \ProductsController::$lastRedirect,
+            'Expected redirect to ' . $expected
+        );
+    }
 
-    $this->addToAssertionCount(1);
-  }
+    public function testPurchaseFormRedirectsWhenGuest(): void
+    {
+        $ctrl = new \ProductsController(); // global class (no namespace)
 
-  public function testPurchaseInsufficientStock(): void {
-    // logged-in user
-    $_SESSION['user'] = ['id'=>1,'email'=>'u@x.com','role'=>'User'];
+        // id doesn't really matter here (guest is redirected before DB),
+        // but use the real one anyway:
+        $ctrl->purchaseForm(['id' => $this->productId]);
 
-    $ctrl = new \ProductsController();
-    $_POST = ['quantity'=>99999];
+        $this->assertRedirect('/login');
+    }
 
-    ob_start();
-    try { $ctrl->purchase(['id'=>1]); } catch (\Throwable $e) {}
-    $out = ob_get_clean();
+    public function testPurchaseInsufficientStock(): void
+    {
+        // logged-in user
+        $_SESSION['user'] = ['id'=>1,'email'=>'u@x.com','role'=>'User'];
 
-    $this->assertStringContainsString('Insufficient stock', $out);
+        $ctrl = new \ProductsController();
+        $_POST = ['quantity'=>99999];
 
-    $this->addToAssertionCount(1);
-  }
+        ob_start();
+        // use the actual product id we inserted in setUp()
+        $ctrl->purchase(['id' => $this->productId]);
+        $out = ob_get_clean();
 
-  public function testCreateValidationFails(): void {
-    // If create() requires auth, mimic admin
-    $_SESSION['user'] = ['id'=>1,'email'=>'a@b.com','role'=>'Admin'];
+        $this->assertStringContainsString('Insufficient stock', $out);
+    }
 
-    $ctrl = new \ProductsController();
-    $_POST = ['name'=>'','price'=>'-1','quantity_available'=>'-5'];
+    public function testCreateValidationFails(): void
+    {
+        // If create() requires auth, mimic admin
+        $_SESSION['user'] = ['id'=>1,'email'=>'a@b.com','role'=>'Admin'];
 
-    ob_start();
-    try { $ctrl->create(); } catch (\Throwable $e) {}
-    $out = ob_get_clean();
+        $ctrl = new \ProductsController();
+        $_POST = ['name'=>'','price'=>'-1','quantity_available'=>'-5'];
 
-    $this->assertMatchesRegularExpression('/Name is required|Price must be positive|non-negative/', $out);
+        ob_start();
+        $ctrl->create();
+        $out = ob_get_clean();
 
-    $this->addToAssertionCount(1);
-  }
+        $this->assertMatchesRegularExpression(
+            '/Name is required|Price must be positive|non-negative/',
+            $out
+        );
+    }
 }

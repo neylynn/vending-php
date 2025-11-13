@@ -22,3 +22,12 @@ password : Admin@123
 email : user@example.com
 password : User@123
 
+## Unit Testing
+- create 'vending_testing' database
+- run sql/schema.sql 
+- update config in phpunit.xml
+
+## How to test
+- run this command via git bash
+- cd vending-app
+- vendor/bin/phpunit tests/ProductsControllerTest.php --testdox

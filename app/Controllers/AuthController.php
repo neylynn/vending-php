@@ -30,6 +30,13 @@ class AuthController {
   #[Route('POST','/logout')]
   public function logout() {
     SessionAuth::logout();
-    header('Location: /login'); exit;
+    // header('Location: /login'); exit;
+    function redirect(string $url) {
+        header("Location: $url");
+        if (!defined('PHPUNIT_RUNNING')) {
+            exit;
+        }
+    }
+
   }
 }

@@ -29,14 +29,30 @@ class SessionAuth {
   public static function requireLogin(): void {
     self::start();
     if (empty($_SESSION['user'])) {
-      header('Location: /login');
-      exit;
+      // header('Location: /login');
+      // exit;
+      function redirect(string $url) {
+          header("Location: $url");
+          if (!defined('PHPUNIT_RUNNING')) {
+              exit;
+          }
+      }
+
     }
   }
 
   public static function requireRole(string $role): void {
     $u = self::user();
-    if (!$u) { http_response_code(302); header('Location: /login'); exit; }
+    if (!$u) { http_response_code(302); 
+      // header('Location: /login'); exit; 
+      function redirect(string $url) {
+          header("Location: $url");
+          if (!defined('PHPUNIT_RUNNING')) {
+              exit;
+          }
+      }
+
+    }
     if (($u['role'] ?? '') !== $role) { http_response_code(403); echo 'Forbidden'; exit; }
   }
 }
