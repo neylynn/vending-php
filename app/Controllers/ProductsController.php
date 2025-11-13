@@ -6,42 +6,70 @@ use App\Validation\Validator;
 class ProductsController {
   #[Route('GET','/products')]
   public function index() {
-    SessionAuth::start();
-    $pdo = Db::get();
+      SessionAuth::start();
+      $pdo = Db::get();
 
-    // Inputs (with sane defaults)
-    $page = max(1, (int)($_GET['page'] ?? 1));
-    $per  = max(1, (int)($_GET['perPage'] ?? 10)); // allow perPage query param; default 10
-    $sort = $_GET['sort'] ?? 'name';
-    $dirQ = strtolower($_GET['dir'] ?? 'asc');
-    $dir  = ($dirQ === 'desc') ? 'DESC' : 'ASC';   // SQL keyword
-    $dirForView = ($dir === 'DESC') ? 'desc' : 'asc'; // what the view expects (lowercase)
+      $page = max(1, (int)($_GET['page'] ?? 1));
+      $per  = max(1, (int)($_GET['perPage'] ?? 10));
+      $sort = $_GET['sort'] ?? 'created_at';
+      $dirQ = strtolower($_GET['dir'] ?? 'desc');
+      $dir  = ($dirQ === 'desc') ? 'DESC' : 'ASC';
+      $dirForView = ($dir === 'DESC') ? 'desc' : 'asc';
 
-    // Whitelist sort columns
-    $allowed = ['name','price','quantity_available','id'];
-    if (!in_array($sort, $allowed, true)) $sort = 'name';
+      $from = $_GET['from'] ?? null;
+      $to   = $_GET['to']   ?? null;
 
-    $offset = ($page - 1) * $per;
+      $allowed = ['name','price','quantity_available','id','created_at'];
+      if (!in_array($sort, $allowed, true)) $sort = 'name';
 
-    // Fetch data
-    $total = (int) $pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
-    $stmt = $pdo->prepare("SELECT * FROM products ORDER BY $sort $dir LIMIT :per OFFSET :off");
-    $stmt->bindValue(':per', $per, \PDO::PARAM_INT);
-    $stmt->bindValue(':off', $offset, \PDO::PARAM_INT);
-    $stmt->execute();
-    $items = $stmt->fetchAll();
+      $offset = ($page - 1) * $per;
 
-    // Render — pass everything the view uses
-    view('products/index', [
-      'rows'    => $items,
-      'total'   => $total,
-      'page'    => $page,
-      'perPage' => $per,
-      'sort'    => $sort,
-      'dir'     => $dirForView,
-      'user'    => SessionAuth::user(), // convenient for role checks in the view
-    ]);
+      // Build the WHERE clause dynamically
+      $where = [];
+      $params = [];
+
+      if ($from) {
+          $where[] = "created_at >= :from";
+          $params[':from'] = $from . " 00:00:00";
+      }
+      if ($to) {
+          $where[] = "created_at <= :to";
+          $params[':to'] = $to . " 23:59:59";
+      }
+
+      $whereSql = $where ? "WHERE " . implode(" AND ", $where) : "";
+
+      // Get total with filter
+      $countStmt = $pdo->prepare("SELECT COUNT(*) FROM products $whereSql");
+      foreach ($params as $k => $v) $countStmt->bindValue($k, $v);
+      $countStmt->execute();
+      $total = (int)$countStmt->fetchColumn();
+
+      // Fetch items with filter + pagination
+      $sql = "SELECT * FROM products $whereSql ORDER BY $sort $dir LIMIT :per OFFSET :off";
+      $stmt = $pdo->prepare($sql);
+
+      foreach ($params as $k => $v) $stmt->bindValue($k, $v);
+
+      $stmt->bindValue(':per', $per, \PDO::PARAM_INT);
+      $stmt->bindValue(':off', $offset, \PDO::PARAM_INT);
+      $stmt->execute();
+
+      $items = $stmt->fetchAll();
+
+      view('products/index', [
+          'rows'    => $items,
+          'total'   => $total,
+          'page'    => $page,
+          'perPage' => $per,
+          'sort'    => $sort,
+          'dir'     => $dirForView,
+          'from'    => $from,
+          'to'      => $to,
+          'user'    => SessionAuth::user(),
+      ]);
   }
+
 
   #[Route('GET','/products/create')]
   public function createForm() {

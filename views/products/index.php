@@ -15,6 +15,7 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
   $pageCount    = (int)ceil($totalInt / max(1, $pp));
   $hasPrev      = $currentPage > 1;
   $hasNext      = $currentPage < $pageCount;
+  $rowNo = ($currentPage - 1) * $pp + 1; 
 
   function s($col){
     global $sort, $dir, $page, $perPage;
@@ -49,14 +50,32 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
   }
 </style>
 
+<form method="get" class="mb-3 d-flex gap-3 align-items-end">
+    <div>
+        <label class="form-label">From</label>
+        <input type="date" name="from" value="<?= htmlspecialchars($from ?? '') ?>" class="form-control">
+    </div>
+    <div>
+        <label class="form-label">To</label>
+        <input type="date" name="to" value="<?= htmlspecialchars($to ?? '') ?>" class="form-control">
+    </div>
+    <div>
+        <label class="form-label d-block">&nbsp;</label>
+        <button class="btn btn-primary">Filter</button>
+    </div>
+</form>
+
+
 <div class="table-responsive">
   <table class="table table-striped table-hover table-bordered align-middle w-100 shadow-sm">
     <thead class="table-primary">
       <tr>
+        <th>No.</th>
         <th><a href="<?= s('name') ?>" class="text-dark text-decoration-none fw-semibold">Name</a></th>
         <th><a href="<?= s('price') ?>" class="text-dark text-decoration-none fw-semibold">Price</a></th>
         <th><a href="<?= s('quantity_available') ?>" class="text-dark text-decoration-none fw-semibold">Qty</a></th>
         <th>Actions</th>
+        <th><a href="<?= s('created_at') ?>" class="text-dark text-decoration-none fw-semibold">Date</a></th>
       </tr>
     </thead>
     <tbody>
@@ -67,6 +86,7 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
       <?php else: ?>
         <?php foreach ($rows as $r): ?>
           <tr>
+            <td><?= $rowNo++ ?></td>
             <td>
               <?= htmlspecialchars($r['name']) ?>
               <?php if ((int)$r['quantity_available'] === 0): ?>
@@ -91,6 +111,7 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
                 <?php endif; ?>
               </div>
             </td>
+            <td><?= htmlspecialchars(date('Y-m-d', strtotime($r['created_at']))) ?></td>
           </tr>
         <?php endforeach; ?>
       <?php endif; ?>

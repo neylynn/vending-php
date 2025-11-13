@@ -22,7 +22,7 @@ class Database {
       if ($host === null || $name === null) {
         throw new RuntimeException("Database config missing 'host' or 'name' (or provide 'dsn').");
       }
-      $port = isset($db['port']) ? (int)$db['port'] : 3306;
+      $port = isset($db['port']) ? (int)$db['port'] : 3307;
       $dsn  = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $name);
     }
 
