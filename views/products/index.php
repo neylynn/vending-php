@@ -1,9 +1,7 @@
 <?php
-use App\Auth\SessionAuth;
-SessionAuth::start();
-$user = SessionAuth::user(); // ['id','email','role'] or null
+// $rows, $total, $page, $perPage, $sort, $dir, $from, $to, $user
+// are passed from ProductsController::index().
 ?>
-
 
 <?php ob_start(); $title='Products'; ?>
 <h1 class="mb-4 fw-bold text-dark text-center">Products</h1>
@@ -15,7 +13,7 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
   $pageCount    = (int)ceil($totalInt / max(1, $pp));
   $hasPrev      = $currentPage > 1;
   $hasNext      = $currentPage < $pageCount;
-  $rowNo = ($currentPage - 1) * $pp + 1; 
+  $rowNo        = ($currentPage - 1) * $pp + 1; 
 
   function s($col){
     global $sort, $dir, $page, $perPage;
@@ -88,7 +86,7 @@ $user = SessionAuth::user(); // ['id','email','role'] or null
     <tbody>
       <?php if (empty($rows)): ?>
         <tr>
-          <td colspan="4" class="text-center text-muted py-4">No products found.</td>
+          <td colspan="6" class="text-center text-muted py-4">No products found.</td>
         </tr>
       <?php else: ?>
         <?php foreach ($rows as $r): ?>
