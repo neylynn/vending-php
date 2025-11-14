@@ -1,42 +1,47 @@
 <?php
-use App\Auth\SessionAuth;
-use App\Database\Db;
 
-class AuthController {
-  #[Route('GET','/login')]
-  public function loginForm() {
-    view('auth/login');
-  }
-
-  #[Route('POST','/login')]
-  public function login() {
-    SessionAuth::start();
-    $email = trim($_POST['email'] ?? '');
-    $pass  = (string)($_POST['password'] ?? '');
-
-    $pdo = Db::get();
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
-    $user = $stmt->fetch();
-    if (!$user || !password_verify($pass, $user['password_hash'])) {
-      $error = 'Invalid credentials';
-      view('auth/login');
-      return;
+class AuthController
+{
+    public function __construct(
+        private Auth $auth,
+        private UserRepository $users,
+        private array $jwtConfig = []   // keep this if you use JWT later
+    ) {
     }
-    SessionAuth::login($user);
-    header('Location: /products'); exit;
-  }
 
-  #[Route('POST','/logout')]
-  public function logout() {
-    SessionAuth::logout();
-    // header('Location: /login'); exit;
-    function redirect(string $url) {
-        header("Location: $url");
-        if (!defined('PHPUNIT_RUNNING')) {
-            exit;
+    #[Route('GET', '/login')]
+    public function loginForm()
+    {
+        // You can pass data like ['error' => $error] if your view() helper supports it
+        view('auth/login');
+    }
+
+    #[Route('POST', '/login')]
+    public function login()
+    {
+        $email = trim($_POST['email'] ?? '');
+        $pass  = (string)($_POST['password'] ?? '');
+
+        // Use the Auth service, which already talks to UserRepository
+        if (!$this->auth->attempt($email, $pass)) {
+            $error = 'Invalid credentials';
+
+            // If your view helper accepts data, you can do:
+            // view('auth/login', ['error' => $error, 'old' => ['email' => $email]]);
+            // To minimize changes, keep it simple:
+            view('auth/login');
+            return;
         }
+
+        header('Location: /products');
+        exit;
     }
 
-  }
+    #[Route('GET', '/logout')] // or POST if you prefer, manual route in index.php will still work
+    public function logout()
+    {
+        $this->auth->logout();
+        header('Location: /login');
+        exit;
+    }
 }

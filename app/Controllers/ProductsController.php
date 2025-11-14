@@ -1,6 +1,5 @@
 <?php
-use App\Auth\SessionAuth;
-use App\Database\Db;
+
 use App\Validation\Validator;
 
 class ProductsController
@@ -9,6 +8,15 @@ class ProductsController
      * For tests: store the last redirect URL so PHPUnit can assert it.
      */
     public static ?string $lastRedirect = null;
+
+    public function __construct(
+        private ProductRepository $productsRepo,
+        private TransactionRepository $txRepo,
+        private Auth $auth,
+        private \PDO $pdo,               // <-- inject PDO instead of Db::get()
+    ) {
+        // Auth constructor already ensures session_start()
+    }
 
     /**
      * Central redirect helper.
@@ -25,11 +33,40 @@ class ProductsController
         }
     }
 
+    /**
+     * Require a logged-in user; redirect to /login if guest.
+     * Returns the current user array.
+     */
+    private function requireLogin(): array
+    {
+        $user = $this->auth->user();
+        if (!$user) {
+            $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'] ?? '/products';
+            $this->redirect('/login');
+        }
+        return $user;
+    }
+
+    /**
+     * Require an Admin role; 403 or redirect if not allowed.
+     */
+    private function requireAdmin(): array
+    {
+        $user = $this->requireLogin();
+        if (($user['role'] ?? '') !== 'Admin') {
+            http_response_code(403);
+            echo 'Forbidden';
+            if (!defined('PHPUNIT_RUNNING')) {
+                exit;
+            }
+        }
+        return $user;
+    }
+
     #[Route('GET','/products')]
     public function index()
     {
-        SessionAuth::start();
-        $pdo = Db::get();
+        $pdo = $this->pdo;
 
         $page = max(1, (int)($_GET['page'] ?? 1));
         $per  = max(1, (int)($_GET['perPage'] ?? 10));
@@ -47,16 +84,16 @@ class ProductsController
         $offset = ($page - 1) * $per;
 
         // Build the WHERE clause dynamically
-        $where = [];
+        $where  = [];
         $params = [];
 
         if ($from) {
-            $where[] = "created_at >= :from";
-            $params[':from'] = $from . " 00:00:00";
+            $where[]          = "created_at >= :from";
+            $params[':from']  = $from . " 00:00:00";
         }
         if ($to) {
-            $where[] = "created_at <= :to";
-            $params[':to'] = $to . " 23:59:59";
+            $where[]          = "created_at <= :to";
+            $params[':to']    = $to . " 23:59:59";
         }
 
         $whereSql = $where ? "WHERE " . implode(" AND ", $where) : "";
@@ -68,7 +105,7 @@ class ProductsController
         $total = (int)$countStmt->fetchColumn();
 
         // Fetch items with filter + pagination
-        $sql = "SELECT * FROM products $whereSql ORDER BY $sort $dir LIMIT :per OFFSET :off";
+        $sql  = "SELECT * FROM products $whereSql ORDER BY $sort $dir LIMIT :per OFFSET :off";
         $stmt = $pdo->prepare($sql);
 
         foreach ($params as $k => $v) $stmt->bindValue($k, $v);
@@ -88,25 +125,26 @@ class ProductsController
             'dir'     => $dirForView,
             'from'    => $from,
             'to'      => $to,
-            'user'    => SessionAuth::user(),
+            'user'    => $this->auth->user(),
         ]);
     }
 
     #[Route('GET','/products/create')]
     public function createForm()
     {
-        SessionAuth::requireRole('Admin');
+        $this->requireAdmin();
+
         view('products/create', [
             'product' => ['name'=>'','price'=>'','quantity_available'=>''],
             'errors'  => [],
-            'user'    => SessionAuth::user(),
+            'user'    => $this->auth->user(),
         ]);
     }
 
     #[Route('POST','/products')]
     public function create()
     {
-        SessionAuth::requireRole('Admin');
+        $this->requireAdmin();
         [$errors, $data] = Validator::product($_POST);
 
         if ($errors) {
@@ -119,12 +157,12 @@ class ProductsController
             view('products/create', [
                 'product' => $_POST,
                 'errors'  => $errors,
-                'user'    => SessionAuth::user(),
+                'user'    => $this->auth->user(),
             ]);
             return;
         }
 
-        $pdo = Db::get();
+        $pdo  = $this->pdo;
         $stmt = $pdo->prepare(
             "INSERT INTO products (name, price, quantity_available) VALUES (?,?,?)"
         );
@@ -136,8 +174,7 @@ class ProductsController
     #[Route('GET','/products/{id}')]
     public function show($params)
     {
-        SessionAuth::start();
-        $pdo = Db::get();
+        $pdo = $this->pdo;
 
         $id = (int)$params['id'];
         $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
@@ -148,15 +185,15 @@ class ProductsController
 
         view('products/show', [
             'p'    => $product,
-            'user' => SessionAuth::user(),
+            'user' => $this->auth->user(),
         ]);
     }
 
     #[Route('GET','/products/{id}/edit')]
     public function editForm($params)
     {
-        SessionAuth::requireRole('Admin');
-        $pdo = Db::get();
+        $this->requireAdmin();
+        $pdo = $this->pdo;
 
         $id = (int)$params['id'];
         $stmt = $pdo->prepare("SELECT * FROM products WHERE id=?");
@@ -175,12 +212,12 @@ class ProductsController
     #[Route('POST','/products/{id}/edit')]
     public function update($params)
     {
-        SessionAuth::requireRole('Admin');
+        $this->requireAdmin();
         [$errors, $data] = Validator::product($_POST);
         $id = (int)$params['id'];
+        $pdo = $this->pdo;
 
         if ($errors) {
-            $pdo = Db::get();
             $stmt = $pdo->prepare("SELECT * FROM products WHERE id=?");
             $stmt->execute([$id]);
             $product = $stmt->fetch();
@@ -193,7 +230,6 @@ class ProductsController
             return;
         }
 
-        $pdo = Db::get();
         $stmt = $pdo->prepare(
             "UPDATE products SET name=?, price=?, quantity_available=? WHERE id=?"
         );
@@ -205,8 +241,8 @@ class ProductsController
     #[Route('POST','/products/{id}/delete')]
     public function delete($params)
     {
-        SessionAuth::requireRole('Admin');
-        $pdo = Db::get();
+        $this->requireAdmin();
+        $pdo  = $this->pdo;
         $stmt = $pdo->prepare("DELETE FROM products WHERE id=?");
         $stmt->execute([(int)$params['id']]);
         flash('success', '✅ Product deleted successfully.');
@@ -216,16 +252,16 @@ class ProductsController
     #[Route('GET','/products/{id}/purchase')]
     public function purchaseForm($params)
     {
-        SessionAuth::start();
+        $user = $this->auth->user();
 
         // Redirect guests to login (and remember original URL)
-        if (!SessionAuth::user()) {
+        if (!$user) {
             $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'] ?? '/products';
             $this->redirect('/login');
             return;
         }
 
-        $pdo = Db::get();
+        $pdo  = $this->pdo;
         $stmt = $pdo->prepare("SELECT * FROM products WHERE id=?");
         $stmt->execute([(int)$params['id']]);
         $product = $stmt->fetch();
@@ -234,133 +270,67 @@ class ProductsController
         view('products/purchase', [
             'product' => $product,
             'errors'  => [],
-            'user'    => SessionAuth::user(),
+            'user'    => $user,
         ]);
     }
-
-    // #[Route('POST','/products/{id}/purchase')]
-    // public function purchase($params)
-    // {
-    //     SessionAuth::start();
-
-    //     // Redirect guests to login before processing
-    //     if (!SessionAuth::user()) {
-    //         $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'] ?? '/products';
-    //         $this->redirect('/login');
-    //         return;
-    //     }
-
-    //     $qty = max(1, (int)($_POST['quantity'] ?? 1));
-    //     $pdo = Db::get();
-    //     $pdo->beginTransaction();
-
-    //     try {
-    //         $stmt = $pdo->prepare("SELECT * FROM products WHERE id=? FOR UPDATE");
-    //         $stmt->execute([(int)$params['id']]);
-    //         $p = $stmt->fetch();
-    //         if (!$p) { throw new \Exception('Product not found'); }
-    //         if ((int)$p['quantity_available'] < $qty) { throw new \Exception('Insufficient stock'); }
-
-    //         $stmt = $pdo->prepare(
-    //             "UPDATE products SET quantity_available = quantity_available - ? WHERE id=?"
-    //         );
-    //         $stmt->execute([$qty, (int)$params['id']]);
-
-    //         $u = SessionAuth::user();
-    //         $uid = $u['id'] ?? 0;
-    //         $unit = (float)$p['price'];
-    //         $total = $unit * $qty;
-
-    //         $stmt = $pdo->prepare(
-    //             "INSERT INTO transactions (user_id, product_id, quantity, unit_price, total_price)
-    //              VALUES (?,?,?,?,?)"
-    //         );
-    //         $stmt->execute([$uid, (int)$params['id'], $qty, $unit, $total]);
-
-    //         $pdo->commit();
-    //         flash('success', '✅ Purchase product successfully.');
-    //         $this->redirect('/products');
-    //     } catch (\Throwable $e) {
-    //         $pdo->rollBack();
-
-    //         // Always echo the message so PHPUnit's output buffer sees it
-    //         echo $e->getMessage();
-
-    //         // Normal web rendering with error message
-    //         view('products/purchase', [
-    //             'product' => $p ?? null,
-    //             'errors'  => ['purchase' => $e->getMessage()],
-    //             'user'    => SessionAuth::user(),
-    //         ]);
-    //     }
-    // }
 
     #[Route('POST','/products/{id}/purchase')]
-public function purchase($params)
-{
-    SessionAuth::start();
+    public function purchase($params)
+    {
+        $user = $this->requireLogin(); // must be logged in
 
-    // Redirect guests to login before processing
-    if (!SessionAuth::user()) {
-        $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'] ?? '/products';
-        $this->redirect('/login');
-        return;
-    }
+        $qty = max(1, (int)($_POST['quantity'] ?? 1));
+        $pdo = $this->pdo;
 
-    $qty = max(1, (int)($_POST['quantity'] ?? 1));
-    $pdo = Db::get();
-
-    // ✅ Only start/commit/rollback if *we* own the transaction
-    $ownTx = false;
-    if (!$pdo->inTransaction()) {
-        $pdo->beginTransaction();
-        $ownTx = true;
-    }
-
-    try {
-        $stmt = $pdo->prepare("SELECT * FROM products WHERE id=? FOR UPDATE");
-        $stmt->execute([(int)$params['id']]);
-        $p = $stmt->fetch();
-        if (!$p) { throw new \Exception('Product not found'); }
-        if ((int)$p['quantity_available'] < $qty) { throw new \Exception('Insufficient stock'); }
-
-        $stmt = $pdo->prepare(
-            "UPDATE products SET quantity_available = quantity_available - ? WHERE id=?"
-        );
-        $stmt->execute([$qty, (int)$params['id']]);
-
-        $u = SessionAuth::user();
-        $uid = $u['id'] ?? 0;
-        $unit = (float)$p['price'];
-        $total = $unit * $qty;
-
-        $stmt = $pdo->prepare(
-            "INSERT INTO transactions (user_id, product_id, quantity, unit_price, total_price)
-             VALUES (?,?,?,?,?)"
-        );
-        $stmt->execute([$uid, (int)$params['id'], $qty, $unit, $total]);
-
-        if ($ownTx) {
-            $pdo->commit();
+        // ✅ Only start/commit/rollback if *we* own the transaction
+        $ownTx = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $ownTx = true;
         }
 
-        flash('success', '✅ Purchase product successfully.');
-        $this->redirect('/products');
-    } catch (\Throwable $e) {
-        if ($ownTx && $pdo->inTransaction()) {
-            $pdo->rollBack();
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM products WHERE id=? FOR UPDATE");
+            $stmt->execute([(int)$params['id']]);
+            $p = $stmt->fetch();
+            if (!$p) { throw new \Exception('Product not found'); }
+            if ((int)$p['quantity_available'] < $qty) { throw new \Exception('Insufficient stock'); }
+
+            $stmt = $pdo->prepare(
+                "UPDATE products SET quantity_available = quantity_available - ? WHERE id=?"
+            );
+            $stmt->execute([$qty, (int)$params['id']]);
+
+            $uid   = $user['id'] ?? 0;
+            $unit  = (float)$p['price'];
+            $total = $unit * $qty;
+
+            $stmt = $pdo->prepare(
+                "INSERT INTO transactions (user_id, product_id, quantity, unit_price, total_price)
+                 VALUES (?,?,?,?,?)"
+            );
+            $stmt->execute([$uid, (int)$params['id'], $qty, $unit, $total]);
+
+            if ($ownTx) {
+                $pdo->commit();
+            }
+
+            flash('success', '✅ Purchase product successfully.');
+            $this->redirect('/products');
+        } catch (\Throwable $e) {
+            if ($ownTx && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            // Always echo the message so PHPUnit's output buffer sees it
+            echo $e->getMessage();
+
+            // Normal web rendering with error message
+            view('products/purchase', [
+                'product' => $p ?? null,
+                'errors'  => ['purchase' => $e->getMessage()],
+                'user'    => $this->auth->user(),
+            ]);
         }
-
-        // Always echo the message so PHPUnit's output buffer sees it
-        echo $e->getMessage();
-
-        // Normal web rendering with error message
-        view('products/purchase', [
-            'product' => $p ?? null,
-            'errors'  => ['purchase' => $e->getMessage()],
-            'user'    => SessionAuth::user(),
-        ]);
     }
-}
-
 }
