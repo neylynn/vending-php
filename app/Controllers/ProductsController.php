@@ -242,10 +242,27 @@ class ProductsController
     public function delete($params)
     {
         $this->requireAdmin();
-        $pdo  = $this->pdo;
-        $stmt = $pdo->prepare("DELETE FROM products WHERE id=?");
-        $stmt->execute([(int)$params['id']]);
-        flash('success', '✅ Product deleted successfully.');
+        $pdo = $this->pdo;
+        $id  = (int)$params['id'];
+
+        $pdo->beginTransaction();
+        try {
+            // 1) Delete all transactions for this product
+            $stmt = $pdo->prepare("DELETE FROM transactions WHERE product_id = ?");
+            $stmt->execute([$id]);
+
+            // 2) Delete the product itself
+            $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
+            $stmt->execute([$id]);
+
+            $pdo->commit();
+
+            flash('success', '✅ Product deleted successfully.');
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', '❌ Failed to delete product: ' . $e->getMessage());
+        }
+
         $this->redirect('/products');
     }
 
